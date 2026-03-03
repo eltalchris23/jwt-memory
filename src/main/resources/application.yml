@@ -4,4 +4,5 @@ spring:
 
 jwt:
   secret: "mi_clave_super_secreta_de_al_menos_32_caracteres_123456"
-  expiration: 120000 # 2 minutos (ms)
+  accessExpiration: 120000 # 2 minutos (ms)
+  refreshExpiration: 604800000    # 7 días
