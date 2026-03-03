@@ -1,11 +1,14 @@
 package com.jwt.memory.config;
 
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
+
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
@@ -20,49 +23,60 @@ public class JwtService {
     @Value("${jwt.secret}")
     private String secret;
 
-    @Value("${jwt.expiration}")
-    private Long expiration;
+    @Value("${jwt.accessExpiration}")   // en ms
+    private Long accessExpiration;
+
+    @Value("${jwt.refreshExpiration}")  // en ms
+    private Long refreshExpiration;
 
     private Key getSigningKey() {
-        return Keys.hmacShaKeyFor(
-                secret.getBytes(StandardCharsets.UTF_8)
-        );
+        return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
 
-    /*
-    // En producción mover a application.yml
-    private static final Key SECRET_KEY =
-            Keys.secretKeyFor(SignatureAlgorithm.HS256);
-
-    //private static final long EXPIRATION_TIME =
-    //        1000 * 60 * 60; // 1 hora
-    private static final long EXPIRATION_TIME = 2 * 60 * 1000; // 2 minutos
-*/
     /* =========================
-       GENERAR TOKEN
+       GENERAR ACCESS TOKEN
        ========================= */
-    public String generateToken(String username, Map<String, Object> extraClaims) {
+    public String generateAccessToken(UserDetails userDetails) {
+        Map<String, Object> claims = Map.of(
+                "roles", userDetails.getAuthorities()
+                        .stream()
+                        .map(a -> a.getAuthority())
+                        .toList()
+        );
+        return generateToken(userDetails.getUsername(), claims, accessExpiration);
+    }
 
+    /* =========================
+       GENERAR REFRESH TOKEN
+       ========================= */
+    public String generateRefreshToken(UserDetails userDetails) {
+        // No se incluyen roles, solo username y expiración
+        return generateToken(userDetails.getUsername(), Map.of(), refreshExpiration);
+    }
+
+    /* =========================
+       MÉTODO PRIVADO DE GENERACIÓN
+       ========================= */
+    private String generateToken(String username, Map<String, Object> extraClaims, Long expirationTime) {
         return Jwts.builder()
                 .setClaims(extraClaims)
                 .setSubject(username)
                 .setIssuedAt(new Date())
-                .setExpiration(
-                        new Date(System.currentTimeMillis() + expiration)
-                )
-                .signWith(getSigningKey(),SignatureAlgorithm.HS256)
+                .setExpiration(new Date(System.currentTimeMillis() + expirationTime))
+                .signWith(getSigningKey(), SignatureAlgorithm.HS256)
                 .compact();
     }
 
     /* =========================
        VALIDAR TOKEN
        ========================= */
-    public boolean isTokenValid(String token) {
+    public void validateToken(String token) throws JwtException {
         try {
             extractAllClaims(token);
-            return true;
+        } catch (ExpiredJwtException e) {
+            throw new RuntimeException("Token expirado");
         } catch (JwtException | IllegalArgumentException e) {
-            return false;
+            throw new RuntimeException("Token inválido");
         }
     }
 
@@ -74,11 +88,17 @@ public class JwtService {
     }
 
     public List<String> extractRoles(String token) {
-        return extractAllClaims(token).get("roles", List.class);
+        Object roles = extractAllClaims(token).get("roles");
+        if (roles instanceof List<?> list) {
+            return list.stream()
+                    .map(String::valueOf)
+                    .toList();
+        }
+        return List.of();
     }
 
     /* =========================
-       METODO INTERNO
+       EXTRAER TODAS LAS CLAIMS
        ========================= */
     private Claims extractAllClaims(String token) {
         return Jwts.parserBuilder()
