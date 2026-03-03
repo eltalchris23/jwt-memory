@@ -1,5 +1,6 @@
 package com.jwt.memory.config;
 
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -64,6 +65,31 @@ public class SecurityConfig {
                 .addFilterBefore(
                         jwtAuthFilter,
                         UsernamePasswordAuthenticationFilter.class
+                )
+                // Version 2
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint((req, res, exAuth) -> {
+                            res.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                            res.setContentType("application/json");
+                            res.getWriter().write("""
+            {
+                "status": 401,
+                "error": "Unauthorized",
+                "message": "Token inválido o no enviado"
+            }
+        """);
+                        })
+                        .accessDeniedHandler((req, res, exDenied) -> {
+                            res.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                            res.setContentType("application/json");
+                            res.getWriter().write("""
+            {
+                "status": 403,
+                "error": "Forbidden",
+                "message": "No tienes permisos suficientes"
+            }
+        """);
+                        })
                 );
 
         return http.build();
